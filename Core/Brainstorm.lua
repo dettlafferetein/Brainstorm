@@ -23,15 +23,18 @@ Brainstorm.config = {
     voucher_id = 1,
     tag_name = "tag_charm",
     tag_id = 2,
+    rare_joker_name = "",
+    rare_joker_id = 1,
+    uncommon_joker_name = "",
+    uncommon_joker_id = 1,
     soul_skip = 1,
     inst_observatory = false,
     inst_perkeo = false,
+    negative_5to8 = false,
   },
   ar_prefs = {
     spf_id = 3,
     spf_int = 1000,
-    face_count = 0,
-    suut_ratio_percent = "50%",
   },
 }
 
@@ -103,106 +106,6 @@ function Controller:key_press_update(key, dt)
   end
 end
 
-function analyze_deck()
-  local deck_summary = {}
-  local suit_count = {Hearts = 0, Diamonds = 0, Clubs = 0, Spades = 0}
-  local face_card_count = 0
-  local numeric_card_count = 0
-  local ace_count = 0
-  local unique_card_count = 0
-
-  for _, card in ipairs(G.playing_cards) do
-      if card.base then
-          local card_name = card.base.value .. " of " .. card.base.suit
-          deck_summary[card_name] = (deck_summary[card_name] or 0) + 1
-          suit_count[card.base.suit] = (suit_count[card.base.suit] or 0) + 1
-
-          -- Categorizing cards
-          if card.base.value == "Ace" then
-              ace_count = ace_count + 1
-          elseif card.base.value == "Jack" or card.base.value == "Queen" or card.base.value == "King" then
-              face_card_count = face_card_count + 1
-          else
-              numeric_card_count = numeric_card_count + 1
-          end
-      end
-  end
-
-  -- Count unique cards
-  for _ in pairs(deck_summary) do
-      unique_card_count = unique_card_count + 1
-  end
-
-  -- Return the analysis result
-  return {
-      deck_summary = deck_summary,
-      suit_count = suit_count,
-      face_card_count = face_card_count,
-      numeric_card_count = numeric_card_count,
-      ace_count = ace_count,
-      unique_card_count = unique_card_count
-  }
-end
-
-function print_deck_summary(deck_data)
-  print("----- Deck Breakdown -----")
-  print(string.format("Total Unique Cards: %d", deck_data.unique_card_count))
-  print(string.format("Face Cards (J, Q, K): %d", deck_data.face_card_count))
-  print(string.format("Numeric Cards (2-10): %d", deck_data.numeric_card_count))
-  print(string.format("Aces: %d", deck_data.ace_count))
-
-  print("\nSuit Distribution:")
-  for suit, count in pairs(deck_data.suit_count) do
-      print(string.format("%s: %d", suit, count))
-  end
-
-  print("\nCard Breakdown:")
-  for card_name, count in pairs(deck_data.deck_summary) do
-      print(string.format("%s: %d", card_name, count))
-  end
-end
-
-function is_valid_deck(deck_data, min_face_cards, min_aces, dominant_suit_ratio)
-  -- Ensure parameters are not nil by providing default values
-  min_face_cards = min_face_cards or 0
-  min_aces = min_aces or 0
-  dominant_suit_ratio = dominant_suit_ratio or 0
-
-  -- Extract counts from the deck analysis
-  local total_cards = #G.playing_cards
-  local face_card_count = deck_data.face_card_count or 0
-  local ace_count = deck_data.ace_count or 0
-  local suit_count = deck_data.suit_count or 0
-
-  -- Check Face Cards & Aces
-  if face_card_count < min_face_cards then
-      --print("Not enough face cards:", face_card_count, "Required:", min_face_cards)
-      return false
-  end
-  if ace_count < min_aces then
-      --print("Not enough aces:", ace_count, "Required:", min_aces)
-      return false
-  end
-
-  -- Check suit distribution
-  local sorted_suits = {}
-  for suit, count in pairs(suit_count) do
-      table.insert(sorted_suits, {suit = suit, count = count})
-  end
-  table.sort(sorted_suits, function(a, b) return a.count > b.count end)
-
-  -- Sum the top 2 suit counts
-  local top_2_suit_count = sorted_suits[1].count + (sorted_suits[2] and sorted_suits[2].count or 0)
-  local top_2_suit_percentage = top_2_suit_count / total_cards
-
-  if top_2_suit_percentage < dominant_suit_ratio then
-      --print("Suit distribution is too spread out.")
-      return false
-  end
-
-  return true
-end
-
 function Brainstorm.reroll()
   local G = G -- Cache global G for performance
   G.GAME.viewed_back = nil
@@ -231,28 +134,16 @@ function Game:update(dt)
 
     if Brainstorm.ar_timer >= Brainstorm.AR_INTERVAL then
       Brainstorm.ar_timer = Brainstorm.ar_timer - Brainstorm.AR_INTERVAL
-      local seed_found = Brainstorm.autoReroll()
-      if seed_found then
-        if G.GAME.starting_params.erratic_suits_and_ranks then
-          local deck_data = analyze_deck()        
-          if is_valid_deck(deck_data, Brainstorm.config.ar_prefs.face_count, 0, Brainstorm.config.ar_prefs.suit_ratio_decimal) then
-            Brainstorm.ar_active = false -- STOP REROLLING
-            Brainstorm.ar_frames = 0
-            if Brainstorm.ar_text then
-              Brainstorm.removeAttentionText(Brainstorm.ar_text)
-              Brainstorm.ar_text = nil
-            end
-          end
-        else
-          Brainstorm.ar_active = false -- STOP REROLLING
-            Brainstorm.ar_frames = 0
-            if Brainstorm.ar_text then
-              Brainstorm.removeAttentionText(Brainstorm.ar_text)
-              Brainstorm.ar_text = nil
-            end
+      if Brainstorm.autoReroll() then
+        Brainstorm.ar_active = false
+        Brainstorm.ar_frames = 0
+        if Brainstorm.ar_text then
+          Brainstorm.removeAttentionText(Brainstorm.ar_text)
+          Brainstorm.ar_text = nil
         end
       end
     end
+
     if Brainstorm.ar_frames == 60 and not Brainstorm.ar_text then
       Brainstorm.ar_text = Brainstorm.attentionText({
         scale = 1.4,
@@ -265,12 +156,6 @@ function Game:update(dt)
   end
 end
 
-local ffi = require("ffi")
-local lovely = require("lovely")
-ffi.cdef([[
-const char* brainstorm(const char* seed, const char* voucher, const char* pack, const char* tag, double souls, bool observatory, bool perkeo);
-  ]])
-
 function Brainstorm.autoReroll()
   local seed_found = random_string(
     8,
@@ -278,7 +163,11 @@ function Brainstorm.autoReroll()
       + G.CONTROLLER.cursor_hover.T.y * 0.874146
       + 0.412311010 * G.CONTROLLER.cursor_hover.time
   )
-
+  local ffi = require("ffi")
+  local lovely = require("lovely")
+  ffi.cdef([[
+	const char* brainstorm(const char* seed, const char* voucher, const char* pack, const char* tag, const char* rarejoker, const char* uncommonjoker, double souls, bool observatory, bool perkeo, bool negative5to8);
+    ]])
   local immolate = ffi.load(Brainstorm.PATH .. "/Immolate.dll")
   local pack
   if #Brainstorm.config.ar_filters.pack > 0 then
@@ -297,16 +186,29 @@ function Brainstorm.autoReroll()
     set = "Voucher",
     key = Brainstorm.config.ar_filters.voucher_name,
   })
-  --print(pack_name, tag_name, voucher_name)
+  local rare_joker_name = localize({
+    type = "name_text",
+    set = "Joker",
+    key = Brainstorm.config.ar_filters.rare_joker_name,
+  })
+  local uncommon_joker_name = localize({
+    type = "name_text",
+    set = "Joker",
+    key = Brainstorm.config.ar_filters.uncommon_joker_name,
+  })
+  print(pack_name, tag_name, voucher_name)
   seed_found = ffi.string(
     immolate.brainstorm(
       seed_found,
       voucher_name,
       pack_name,
       tag_name,
+      rare_joker_name,
+      uncommon_joker_name,
       Brainstorm.config.ar_filters.soul_skip,
       Brainstorm.config.ar_filters.inst_observatory,
-      Brainstorm.config.ar_filters.inst_perkeo
+      Brainstorm.config.ar_filters.inst_perkeo,
+      Brainstorm.config.ar_filters.negative_5to8
     )
   )
   if seed_found then
@@ -324,9 +226,12 @@ function Brainstorm.autoReroll()
         voucher_name,
         pack_name,
         tag_name,
+        rare_joker_name,
+        uncommon_joker_name,
         Brainstorm.config.ar_filters.soul_skip,
         Brainstorm.config.ar_filters.inst_observatory,
         Brainstorm.config.ar_filters.inst_perkeo,
+        Brainstorm.config.ar_filters.negative_5to8
       },
     }
     G.GAME.seeded = false
